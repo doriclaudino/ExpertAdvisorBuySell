@@ -1,0 +1,294 @@
+//+------------------------------------------------------------------+
+//|                                                    Sell 1.1.5.mq4|
+//|                                                             dori |
+//|                                             fb.com/dori.claudino |
+//+------------------------------------------------------------------+
+#property copyright "dori"
+#property link      "fb.com/dori.claudino"
+
+extern int @MagicNumber = 2000;
+extern int @MaxOpenPositions = 15;
+extern double @MaxPipStep = 200; 
+extern double @MaxVolume  = 10;
+//------------------------------
+extern double @LoteInicial = 0.1;
+extern double @MinLoteStep = 0.02;
+extern double @MinPipStep = 40; 
+//------------------------------
+extern double @LoteExponencial = 1.1;
+extern double @PipStepExponencial = 1.3;
+//------------------------------
+extern double @TakeProfit = 50; 
+//------------------------------
+extern int @SyncDelay = 4;
+extern double @Slippage   = 5;
+
+
+int InitHour = 0;
+//+------------------------------------------------------------------+
+//| expert initialization function                                   |
+//+------------------------------------------------------------------+
+int init() {
+	if(MarketInfo(Symbol(),MODE_DIGITS)==3 || MarketInfo(Symbol(),MODE_DIGITS)==5) {@MaxPipStep*=10; @MinPipStep*=10; @TakeProfit*=10; @Slippage*=10;}
+	InitHour = Hour();
+	SyncProfit( OP_SELL , @MagicNumber , Symbol() , @TakeProfit );  	
+	return(0);
+}
+//+------------------------------------------------------------------+
+//| expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+int deinit() {
+//----
+
+//----
+	return(0);
+}
+//+------------------------------------------------------------------+
+//| expert start function                                            |
+//+------------------------------------------------------------------+
+int start() {
+     
+    int TOTAL_ORDERS = GetOrdersTotal( OP_SELL , @MagicNumber , Symbol() );
+    double TOTAL_LOTES = GetLotsTotal( OP_SELL , @MagicNumber , Symbol() );
+    double LAST_OPEN_PRICE = GetLastOpenPrice( OP_SELL , @MagicNumber , Symbol() );
+    double LAST_OPEN_LOTE = GetLastOpenLot( OP_SELL , @MagicNumber , Symbol() );
+    
+    //volume com potencial
+    double volume =  NormalizeDouble(@LoteInicial*MathPow(@LoteExponencial,TOTAL_ORDERS),2); 
+    
+    //pipstep com potencial
+    double pipstep = NormalizeDouble(@MinPipStep*MathPow(@PipStepExponencial,TOTAL_ORDERS-1),2); //aqui foi utilizado -1, para nao sair multiplicando logo na segunda negociacao *bug do ilan*
+      
+   //Com maxpipstep o preco da media ira atualizar, evitando esperar grande volatilidade
+   if(pipstep>@MaxPipStep) pipstep = @MaxPipStep;
+  
+   //volume é menor que o permitido pelo broker
+   if(volume>MarketInfo(Symbol(),MODE_MAXLOT))volume=MarketInfo(Symbol(),MODE_MAXLOT); 
+   
+   //Verifica se o lotestep está sendo cumprido [ok].
+   if(volume < LAST_OPEN_LOTE+@MinLoteStep && TOTAL_ORDERS>0 )volume = LAST_OPEN_LOTE + @MinLoteStep;             
+      
+   if(TOTAL_ORDERS < @MaxOpenPositions){ //verificacao numero de posicoes [OK]
+
+      if(volume + TOTAL_LOTES < @MaxVolume){//verifica o total de lotes mais o proximo lote, se é menor que o maxvolume permitido na conta [OK]
+      
+         if(Bid - LAST_OPEN_PRICE >= pipstep*Point || TOTAL_ORDERS == 0){//verifica se já fez o pipstep com potencial
+            SendOrder( OP_SELL, @MagicNumber, Symbol(), volume, @Slippage, TOTAL_ORDERS+1 + " " + @MagicNumber); 
+            Sleep(5000);
+            
+            //Nas contas do tipo PAMM, não podemos enviar as negociações com StopLoss e TakeProfit, devemos alterar esses níveis após criar a ordem.
+            //Necessidade de criar uma Flag para de tempos em tempos atualizar e verificar os niveis de Profit, pois caso abra a negociação e logo caia o terminal, ele deve de tempos fazer essa verificaçao.
+            SyncProfit( OP_SELL , @MagicNumber , Symbol() , @TakeProfit );    
+         }
+      }  
+   }   
+   
+   if((Hour()>InitHour && Hour()-InitHour>=@SyncDelay) || (Hour()<InitHour && InitHour-Hour()>=@SyncDelay)){
+      Print("Synchronizing TPs ");
+      SyncProfit( OP_SELL , @MagicNumber , Symbol() , @TakeProfit);  
+      InitHour = Hour();
+   }
+           
+   string comentario =  "Sell 1.1.5" + "\n" +
+                        "Ordens .: " + DoubleToStr(TOTAL_ORDERS,0) + "\n" +
+                        "Lotes .: " + DoubleToStr(TOTAL_LOTES,2) + "\n" +
+                        "Preco Medio.: " + DoubleToStr(GetMedianPrice(OP_SELL,@MagicNumber,Symbol()),Digits) + "\n" +
+                        "Prox Lote .: " + DoubleToStr(volume,2) + "\n" +
+                        "PipStep .: " + DoubleToStr(pipstep,0) + "\n" +
+                        "Pips to open.: " + DoubleToStr(pipstep-((Bid - LAST_OPEN_PRICE)/Point),0);
+
+   Sleep(500);
+   Comment(comentario);
+	return(0);
+}
+//+------------------------------------------------------------------+
+
+int GetOrdersTotal(int ordertype, int magicnumber, string symbol) {
+	int count = 0;
+	int index = 0;
+
+	if(OrdersTotal()<1) {
+		return (0);
+	} else {
+		for(index = OrdersTotal() - 1; index >= 0 ; index--) {
+			if(OrderSelect(index,SELECT_BY_POS,MODE_TRADES)) {
+			if(OrderSymbol() == symbol && OrderMagicNumber() == magicnumber && OrderType() == ordertype) {
+					count++;
+				} else {
+					continue;
+				}
+			}
+		}
+	}
+	return (count);
+}
+
+
+int SendOrder(int ordertype, int magicnumber, string symbol, double Lot, double slippage, string comment){
+int ticket = 0;
+      for(int n=5;n>=0;n--){
+	  
+		if(ordertype == OP_BUY)
+			ticket = OrderSend(symbol,ordertype,Lot,Ask,slippage,0,0,comment,magicnumber,NULL,Blue); 
+		else
+			ticket = OrderSend(symbol,ordertype,Lot,Bid,slippage,0,0,comment,magicnumber,NULL,Red); 			
+		            
+         int err = GetLastError();
+         if (err == 0/* NO_ERROR */) break;
+         if (!(err == 4/* SERVER_BUSY */ || err == 137/* BROKER_BUSY */ || err == 146/* TRADE_CONTEXT_BUSY */ || err == 136/* OFF_QUOTES */)) break;
+         Sleep(5000);
+      }
+   return(ticket);   
+}
+
+
+double GetLotsTotal(int ordertype,int magicnumber, string symbol) {
+   int total = GetOrdersTotal(ordertype,magicnumber,symbol);
+   int index = 0;
+   double lotstotal = 0;
+	
+	if(total<1){
+		return(0);
+	}else{   
+		for (index = total - 1; index >= 0; index--) {
+			if(OrderSelect(index,SELECT_BY_POS,MODE_TRADES)) {
+				if (OrderSymbol() == symbol && OrderMagicNumber() == magicnumber && OrderType() == ordertype) {
+					lotstotal += OrderLots();
+				}
+			}
+		}
+	}		
+   return (lotstotal);
+}
+
+double GetLastOpenPrice(int ordertype,int magicnumber, string symbol) {
+   int total = GetOrdersTotal(ordertype,magicnumber,symbol);
+   double oldprice = 0;
+   int index = 0;
+   int oldticket = 0;
+   int newticket = 0;
+   
+      for (index = total - 1; index >= 0; index--) {
+         if(OrderSelect(index,SELECT_BY_POS,MODE_TRADES)) {
+            if (OrderSymbol() == symbol && OrderMagicNumber() == magicnumber && OrderType() == ordertype) {
+               oldticket = OrderTicket();
+				if (oldticket > newticket) {
+					oldprice = OrderOpenPrice();
+					newticket = oldticket;
+				}
+            }
+         }
+      }     
+   return (oldprice);
+}
+
+double GetLastOpenLot(int ordertype,int magicnumber, string symbol) {
+   int total = GetOrdersTotal(ordertype,magicnumber,symbol);
+   double lastlot = 0;
+   int index = 0;
+   int oldticket = 0;
+   int newticket = 0;
+   
+      for (index = total - 1; index >= 0; index--) {
+         if(OrderSelect(index,SELECT_BY_POS,MODE_TRADES)) {
+            if (OrderSymbol() == symbol && OrderMagicNumber() == magicnumber && OrderType() == ordertype) {
+               oldticket = OrderTicket();
+				if (oldticket > newticket) {
+					lastlot = OrderLots();
+					newticket = oldticket;
+				}
+            }
+         }
+      }     
+   return (lastlot);
+}
+
+double GetMedianPrice(int ordertype, int magicnumber, string symbol){
+   int total = GetOrdersTotal(ordertype,magicnumber,symbol);
+   double medianprice = 0;
+   double count = 0;
+   int index = 0;
+   
+	if(total<1) {
+		return (0);
+	} else {
+		for(index = total - 1; index >= 0 ; index--) {
+			if(OrderSelect(index,SELECT_BY_POS,MODE_TRADES)) {
+			if(OrderSymbol() == symbol && OrderMagicNumber() == magicnumber && OrderType() == ordertype) {
+					medianprice += OrderOpenPrice() * OrderLots();
+					count += OrderLots();
+				} else {
+					continue;
+				}
+			}
+		}
+	}
+	if(count>0){
+		medianprice = NormalizeDouble(medianprice / count,Digits);
+	}
+	return (medianprice);
+}
+
+double GetTakeProfit(int ordertype, double price, double stop){
+double newtakeprofit = 0;
+
+	if(stop == 0){
+		return(0);
+	}else{
+		if(ordertype == OP_BUY){
+			newtakeprofit = price + stop * Point;
+		}
+		if(ordertype == OP_SELL){
+			newtakeprofit = price - stop * Point;
+		}
+	}
+	return(newtakeprofit);
+}
+
+
+void SyncProfit(int ordertype,int magicnumber, string symbol, double lucro){  
+int total = GetOrdersTotal(ordertype,magicnumber,symbol); 
+int index = 0;
+bool modify = false;
+
+	if(total<1){
+		return(0);
+	}else{   
+		for (index = total - 1; index >= 0; index--) {
+			if(OrderSelect(index,SELECT_BY_POS,MODE_TRADES)) {
+				if (OrderSymbol() == symbol && OrderMagicNumber() == magicnumber && OrderType() == ordertype) {
+				
+					int    TK = OrderTicket();
+					double TP = OrderTakeProfit();
+					double SL = OrderStopLoss();
+					double OP = OrderOpenPrice();
+					double newtakeprofit = 0;
+					double medianprice = GetMedianPrice(ordertype,magicnumber,symbol);
+					color cor;
+
+					switch(OrderType())	{
+						case 0://buy
+							if(TP != GetTakeProfit(ordertype,medianprice, lucro)){
+								modify = true;    
+								newtakeprofit = GetTakeProfit(ordertype,medianprice, lucro);   
+								cor = Blue;  
+							}   
+						break;
+						
+						case 1://sell
+							if(TP != GetTakeProfit(ordertype,medianprice, lucro)){
+								modify = true;    
+								newtakeprofit = GetTakeProfit(ordertype,medianprice, lucro);    
+								cor = Red;    
+							}   					
+						break;
+					}//exit switch
+					
+					if(modify == false) continue;
+					OrderModify(TK,OP,SL,newtakeprofit,0,cor);				
+					
+				}
+			}
+		}
+	}	
+}
