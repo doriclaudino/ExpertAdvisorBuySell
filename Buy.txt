@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                                                     Buy 1.1.1.mq4|
+//|                                                     Buy 1.1.2.mq4|
 //|                                                             dori |
 //|                                             fb.com/dori.claudino |
 //+------------------------------------------------------------------+
@@ -22,6 +22,7 @@ Criar regra de
 
 /*
 Testar novas implementações e possiveis erros de stoploss
+Testado funcoes do Buying.mq4 funções com final.Buy e estão funcionando (ao menos pra TP estão)
 */
 
 
@@ -258,7 +259,7 @@ void RemoveTPSL(int ordertype){
    int maior = 0;
       for (int i = OrdersTotal() - 1; i >= 0; i--) {
          if(OrderExist(i,ordertype)){
-            if(OrderTakeProfit()>0 || OrderStopLoss()>0) OrderModify( OrderTicket(), OrderTakeProfit(), 0, 0, NULL, NULL )            
+            if(OrderTakeProfit()>0 || OrderStopLoss()>0) OrderModify( OrderTicket(), OrderTakeProfit(), 0, 0, NULL, NULL );            
          }
       }   
 }
@@ -271,7 +272,7 @@ void SetTPSL(int ordertype){
       for (int i = OrdersTotal() - 1; i >= 0; i--) {
          if(OrderExist(i,ordertype)){
             double average = AveragePrice(OP_BUY);
-            if(OrderTakeProfit()==0 || OrderStopLoss()==0) OrderModify( OrderTicket(), OrderTakeProfit(), 0, 0, NULL, NULL )            
+            if(OrderTakeProfit()==0 || OrderStopLoss()==0) OrderModify( OrderTicket(), OrderTakeProfit(), 0, 0, NULL, NULL );           
          }
       }   
 }
@@ -297,12 +298,12 @@ bool modify = false;
                case 0://buy
                   if(oTakeProfit != averagePrice + oTakeProfit*Point){
                      modify = true;    
-                     oNewTakeProfit = averagePrice + oTakeProfit*Point);
+                     oNewTakeProfit = averagePrice + oTakeProfit*Point;
                      oNewStopLoss = averagePrice - oStopLoss*Point;
                   }
                   if(oStopLoss != averagePrice - oStopLoss*Point){
                      modify = true;    
-                     oNewTakeProfit = averagePrice + oTakeProfit*Point);
+                     oNewTakeProfit = averagePrice + oTakeProfit*Point;
                      oNewStopLoss = averagePrice - oStopLoss*Point;
                   }
                break;//exit switch   
@@ -349,4 +350,72 @@ void TrailingAlls(int tStart, int sStop, int ordertype) {
          }
       }
    }
+}
+
+
+
+
+
+/* Funcoes abaixo estão funcionando perfeitamente, verificar o magicnumber
+/*************** OrderModify **************/
+int OrderModify.Buy(){   
+bool modify = false;
+   for(int i=0;i<OrdersTotal();i++){
+      if(OrderSelect(i,SELECT_BY_POS)==true){
+      if(OrderSymbol() != Symbol() || OrderType() != OP_BUY) continue;
+      int    TK = OrderTicket();
+      double TP = OrderTakeProfit();
+      double SL = OrderStopLoss();
+      double OP = OrderOpenPrice();
+      double newTP = 0;
+         modify = false;      
+         double avp =GetAveragePrice.Buy();
+
+         switch(OrderType())
+         {
+            case 0://buy
+               if(TP != avp+TakeProfit*Point){
+                  modify = true;    
+                  newTP = avp+TakeProfit*Point;        
+               }   
+            break;//exit switch   
+         }////exit switch
+         
+         if(modify == false) continue; //exit cycle orderstotal
+
+            OrderModify(TK,OP,SL,newTP,0);
+            if(GetLastError()>0)continue;
+            
+      }//exit if orderselected
+   }//exit cycle orderstotal
+}
+
+double GetAveragePrice.Buy(){
+   int total = CountTrades.Buy();
+   double AveragePrice = 0;
+   double Count = 0;
+   for (int i = OrdersTotal() - 1; i >= 0; i--) {
+      OrderSelect(i, SELECT_BY_POS, MODE_TRADES);
+      if (OrderSymbol() != Symbol()) continue;
+      if (OrderSymbol() == Symbol()) {
+         if (OrderType() == OP_BUY) {
+            AveragePrice += OrderOpenPrice() * OrderLots();
+            Count += OrderLots();
+         }
+      }
+   }   
+   if (total > 0) AveragePrice = NormalizeDouble(AveragePrice / Count, Digits);
+   return(AveragePrice);
+}
+
+/*Funcoes*/
+int CountTrades.Buy() {
+   int count = 0;
+   for (int trade = OrdersTotal() - 1; trade >= 0; trade--) {
+      OrderSelect(trade, SELECT_BY_POS, MODE_TRADES);
+      if (OrderSymbol() != Symbol()) continue;
+      if (OrderSymbol() == Symbol())
+         if (OrderType() == OP_BUY) count++;
+   }
+   return (count);
 }
