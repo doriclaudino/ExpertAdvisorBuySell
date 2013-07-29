@@ -1,31 +1,10 @@
 //+------------------------------------------------------------------+
-//|                                                     Buy 1.1.3.mq4|
+//|                                                     Buy 1.1.4.mq4|
 //|                                                             dori |
 //|                                             fb.com/dori.claudino |
 //+------------------------------------------------------------------+
 
 //---Observações
-/*
-------Implementado:
-*TraillingAlls    //Ajustar para o SteathMode (pois utiliza OrderStopLoss())
-*OrderAdjust      //Altera os SL e TP, vai atualizar conforme o preço médio mudar, com novas negociações etc..
-*RemoveTPSL       //Remove todos os StopLoss, quando o usuário decide utilizar SteahMode(TP/SL no cliente) e não estava utilizando
-*SetTPSL          //Seta todos os TakeProfits e StopLoss quando sair do modo SteathMode
-*/
-
-/*
-Criar regras para contas PAMM e o usuário queira TP/SL no servidor (Contas PAMM são criadas sem SL/TP e precisam ser modificadas depois que já tiver o ticket)
-Criar lógica (talves utilizar o TraillinAll) para o SteahtMode com TraillingProfit (Stops deverão ser atualizados sem OrderStopLoss() e OrderTakeProfit(), pois ambas serão 0)
-Criar regra para o traillingAll com o OrderAdjust (pois se usar os dois métodos simultaneamente, um vai ajustar e o outro fazer o trailling)
-Criar regra de 
-*/
-
-/*
-Testar novas implementações e possiveis erros de stoploss
-Testado funcoes do Buying.mq4 funções com final.Buy e estão funcionando (ao menos pra TP estão)
-*/
-
-
 
 #property copyright "dori"
 #property link      "fb.com/dori.claudino"
@@ -34,7 +13,7 @@ extern double LoteInicial = 0.01;
 extern double LoteExponencial = 1.5;
 extern double MinLoteStep = 0.01;
 extern double MaxVolume = 50;
-extern int    MaxDeals = 50;
+extern int    MaxDeals = 50; // 0=ok 1=nok
 extern double MinPipStep = 50;
 extern double MaxPipStep = 150;
 extern double PipStepExponencial = 1.5;
@@ -49,7 +28,7 @@ extern bool   MoneyManagement = false;
 extern double RiskRatio = 0.3;
 
 
-double maior = 0;
+/*double maior = 0; */
 //+------------------------------------------------------------------+
 //| expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -79,14 +58,16 @@ int start()
    if(UseTraillingProfit){}
    
    bool TradeNow = false;
-   int total_deals = TotalDeals(OP_BUY);
-   double last_open_price = FindLastOpenPrice(OP_BUY);
-   double average_price = AveragePrice(OP_BUY);   
-   double last_lote = GetLastLot(OP_BUY);
-   double total_lote = TotalLotes(OP_BUY);
+   int total_deals = GetOrdersTotal(OP_BUY,Symbol(),MagicNumber);
+   double last_open_price = GetLastOpenLot(OP_BUY,Symbol(),MagicNumber);
+   double average_price = GetMedianPrice(OP_BUY,Symbol(),MagicNumber);   
+   double last_lote = GetLastOpenLot(OP_BUY,Symbol(),MagicNumber);
+   double total_lote = GetLotsTotal(OP_BUY,Symbol(),MagicNumber);
    
    //variavel para controle do trailling profit
-   if(total_deals==0) maior =0;
+   /*if(total_deals==0) maior =0;*/
+   
+   
    
    //controle do loteinicial
    if(MoneyManagement)LoteInicial=NormalizeDouble(AccountBalance()*AccountLeverage()/1000000*RiskRatio,0)*MarketInfo(Symbol(),MODE_MINLOT);
@@ -111,6 +92,7 @@ int start()
    //Verifica se o lotestep está sendo cumprido.
    if(CustomVolume<last_lote+MinLoteStep)CustomVolume = last_lote+MinLoteStep;  
    
+   
    if(total_lote+CustomVolume<=MaxVolume && total_deals < MaxDeals && last_open_price-Ask>=CustomPipStep*Point)
       TradeNow = true;
    else if(total_deals<MaxDeals && total_deals ==0 && CustomVolume<=MaxVolume)
@@ -118,9 +100,9 @@ int start()
    else
       TradeNow = false;      
       
-   if(TradeNow) SendOrder(OP_BUY,CustomVolume);   
+   if(TradeNow) SendOrder(OP_BUY,MagicNumber,Symbol(),CustomVolume,"no commet");   
       
-   if(Bid-average_price>=TakeProfit*Point && average_price>0)
+   /*if(Bid-average_price>=TakeProfit*Point && average_price>0)
      EndSession(OP_BUY);
   
    if(TrailStart>0 && Bid-average_price>TrailStart*Point) { 
@@ -128,7 +110,7 @@ int start()
      if(atual>maior)maior=atual;
      if(maior-atual>TrailStop*Point) EndSession(OP_BUY);
    }      
- 
+ */
    
   
    Sleep(300);
@@ -140,310 +122,107 @@ int start()
   }
 //+------------------------------------------------------------------
 
+int GetOrdersTotal(int ordertype, int magicnumber, string symbol) {
+	int count = 0;
+	int index = 0;
 
-//Passe o tipo OP_BUY ou OP_SELL e volume
-int SendOrder(int ordertype,double volume){
+	if(OrdersTotal()<1) {
+		return (0);
+	} else {
+		for(index = OrdersTotal() - 1; index >= 0 ; index--) {
+			if(OrderSelect(index,SELECT_BY_POS,MODE_TRADES)) {
+			if(OrderSymbol() == symbol && OrderMagicNumber() == magicnumber && OrderType() == ordertype) {
+					count++;
+				} else {
+					continue;
+				}
+			}
+		}
+	}
+	return (count);
+}
+
+
+double GetLastOpenLot(int ordertype,int magicnumber, string symbol) {
+   int total = GetOrdersTotal(ordertype,magicnumber,symbol);
+   double lastlot = 0;
+   int index = 0;
+   int oldticket = 0;
+   int newticket = 0;
+   
+      for (index = total - 1; index >= 0; index--) {
+         if(OrderSelect(index,SELECT_BY_POS,MODE_TRADES)) {
+            if (OrderSymbol() == symbol && OrderMagicNumber() == magicnumber && OrderType() == ordertype) {
+               oldticket = OrderTicket();
+				if (oldticket > newticket) {
+					lastlot = OrderLots();
+					newticket = oldticket;
+				}
+            }
+         }
+      }     
+   return (lastlot);
+}
+
+double GetMedianPrice(int ordertype, int magicnumber, string symbol){
+   int total = GetOrdersTotal(ordertype,magicnumber,symbol);
+   double medianprice = 0;
+   double count = 0;
+   int index = 0;
+   
+	if(total<1) {
+		return (0);
+	} else {
+		for(index = total - 1; index >= 0 ; index--) {
+			if(OrderSelect(index,SELECT_BY_POS,MODE_TRADES)) {
+			if(OrderSymbol() == symbol && OrderMagicNumber() == magicnumber && OrderType() == ordertype) {
+					medianprice += OrderOpenPrice() * OrderLots();
+					count += OrderLots();
+				} else {
+					continue;
+				}
+			}
+		}
+	}
+	if(count>0){
+		medianprice = NormalizeDouble(medianprice / count,Digits);
+	}
+	return (medianprice);
+}
+
+
+double GetLotsTotal(int ordertype,int magicnumber, string symbol) {
+   int total = GetOrdersTotal(ordertype,magicnumber,symbol);
+   int index = 0;
+   double lotstotal = 0;
+	
+	if(total<1){
+		return(0);
+	}else{   
+		for (index = total - 1; index >= 0; index--) {
+			if(OrderSelect(index,SELECT_BY_POS,MODE_TRADES)) {
+				if (OrderSymbol() == symbol && OrderMagicNumber() == magicnumber && OrderType() == ordertype) {
+					lotstotal += OrderLots();
+				}
+			}
+		}
+	}		
+   return (lotstotal);
+}
+
+int SendOrder(int ordertype, int magicnumber, string symbol, double Lot, string comment){
+int ticket = 0;
       for(int n=5;n>=0;n--){
-         int ticket = OrderSend(Symbol(),ordertype,volume,Ask,Slippage,0,0,"",MagicNumber,NULL,NULL);      
+	  
+		if(ordertype == OP_BUY)
+			ticket = OrderSend(symbol,ordertype,Lot,Ask,Slippage,0,0,comment,magicnumber,NULL,NULL); 
+		else
+			ticket = OrderSend(symbol,ordertype,Lot,Bid,Slippage,0,0,comment,magicnumber,NULL,NULL); 			
+		            
          int err = GetLastError();
          if (err == 0/* NO_ERROR */) break;
          if (!(err == 4/* SERVER_BUSY */ || err == 137/* BROKER_BUSY */ || err == 146/* TRADE_CONTEXT_BUSY */ || err == 136/* OFF_QUOTES */)) break;
          Sleep(5000);
       }
    return(ticket);   
-}
-
-//Passe o tipo OP_BUY ou OP_SELL
-//
-void EndSession(int ordertype){
-int n = 5; //num tentativas
-   for(n = 5;n>=0;n--){   
-      for (int i = OrdersTotal() - 1; i >= 0; i--) {
-         if(OrderExist(i,ordertype)){
-            if(!OrderClose(OrderTicket(),OrderLots(),Bid,3)){
-               Sleep(1000);
-               RefreshRates();
-            }   
-         }
-      }
-   }   
-}
-
-//Passe o tipo OP_BUY ou OP_SELL
-//Calcula total de ordens de acordo com o tipo passado
-//Faz uma média pondera: OrderOpenPrice() * OrderLots()
-//Divide A média pondera acumulada, com o total de lots acumulados
-//Retorna o preço médio com o peso de cada OrderOpenPrice()*OrderLots()
-double AveragePrice(int ordertype){
-   int total = TotalDeals(ordertype);
-   double AveragePrice = 0;
-   double Count = 0;
-   for (int i = OrdersTotal() - 1; i >= 0; i--) {
-      if(OrderExist(i,ordertype)){
-         AveragePrice += OrderOpenPrice() * OrderLots();
-         Count += OrderLots();
-      }    
-   }     
-   if (total > 0) AveragePrice = NormalizeDouble(AveragePrice / Count, Digits);
-   return(AveragePrice);
-}
-
-
-//Passe o tipo OP_BUY ou OP_SELL
-//Retorna o total de negociação
-int TotalDeals(int ordertype) {
-   int count = 0;
-   for (int i = OrdersTotal() - 1; i >= 0; i--) {
-      if(OrderExist(i,ordertype))
-         count++;
-   }
-   return (count);
-}
-
-//Passe OP_BUY ou OP_SELL
-//Retorna o total de Lotes
-double TotalLotes(int ordertype) {
-   double lotes = 0;
-   for (int i = OrdersTotal() - 1; i >= 0; i--) {
-      if(OrderExist(i,ordertype))
-         lotes+=OrderLots();
-   }
-   return(lotes);
-}
-
-//Passe OP_BUY ou OP_SELL
-//Retorna o preço de abertura da ultima negociação aberta
-double FindLastOpenPrice(int ordertype) {
-   double LastOpenPrice;
-   int atual;
-   int maior = 0;
-      for (int i = OrdersTotal() - 1; i >= 0; i--) {
-         if(OrderExist(i,ordertype)){
-         atual = OrderTicket();
-            if (atual > maior) {
-               LastOpenPrice = OrderOpenPrice();
-               maior = atual;
-            }
-         }
-      }
-   return (LastOpenPrice);
-}
-
-//Passe OP_BUY ou OP_SELL
-//Retorna o lote da ultima negociação aberta
-double GetLastLot(int ordertype) {
-   double LastLot;
-   int atual;
-   int maior = 0;
-      for (int i = OrdersTotal() - 1; i >= 0; i--) {
-         if(OrderExist(i,ordertype)){
-         atual = OrderTicket();
-            if (atual > maior) {
-               LastLot = OrderLots();
-               maior = atual;
-            }
-         }
-      }
-   return (LastLot);
-}
-
-//Passe o tipo OP_BUY ou OP_SELL
-bool OrderExist(int i, int ordertype){  
-   return(OrderSelect(i, SELECT_BY_POS, MODE_TRADES) && OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == ordertype);  
-}
-
-//Passe o tipo OP_BUY ou OP_SELL
-void RemoveTPSL(int ordertype){
-   double LastLot;
-   int atual;
-   int maior = 0;
-      for (int i = OrdersTotal() - 1; i >= 0; i--) {
-         if(OrderExist(i,ordertype)){
-            if(OrderTakeProfit()>0 || OrderStopLoss()>0) OrderModify( OrderTicket(), OrderTakeProfit(), 0, 0, NULL, NULL );            
-         }
-      }   
-}
-
-//Passe o tipo OP_BUY ou OP_SELL
-void SetTPSL(int ordertype){
-   double LastLot;
-   int atual;
-   int maior = 0;
-      for (int i = OrdersTotal() - 1; i >= 0; i--) {
-         if(OrderExist(i,ordertype)){
-            double average = AveragePrice(OP_BUY);
-            if(OrderTakeProfit()==0 || OrderStopLoss()==0) OrderModify( OrderTicket(), OrderTakeProfit(), 0, 0, NULL, NULL );           
-         }
-      }   
-}
-
-
-//Passe o tipo OP_BUY ou OP_SELL
-//Varre todas as negociações, verifica qual SL e TP está fora da regra
-//Altera todos os TP e SL
-void OrderAdjust(int ordertype){   
-bool modify = false;
-   for(int i=0;i<OrdersTotal();i++){
-      if(OrderExist(i, ordertype)){
-         int    Ticket = OrderTicket();
-         double oTakeProfit = OrderTakeProfit();
-         double oStopLoss = OrderStopLoss();
-         double oOpenPrice = OrderOpenPrice();
-         double oNewTakeProfit = 0;
-         double oNewStopLoss = 0;
-         modify = false;   
-         double averagePrice = AveragePrice(OP_BUY);   
-
-            switch(OrderType()){
-               case 0://buy
-                  if(oTakeProfit != averagePrice + oTakeProfit*Point){
-                     modify = true;    
-                     oNewTakeProfit = averagePrice + oTakeProfit*Point;
-                     oNewStopLoss = averagePrice - oStopLoss*Point;
-                  }
-                  if(oStopLoss != averagePrice - oStopLoss*Point){
-                     modify = true;    
-                     oNewTakeProfit = averagePrice + oTakeProfit*Point;
-                     oNewStopLoss = averagePrice - oStopLoss*Point;
-                  }
-               break;//exit switch   
-            }////exit switch
-
-            if(modify == false) continue; //exit cycle orderstotal
-
-            //Verificar a necessidade de filtrar se os novos TP/SL vão gerar algum erro (caso o servidor não aceite TP/SL = 0)
-            //Pode-se fazer a verificação se estão zerados e atribuir então o OrderStopLoss 
-            //para SL e OrderTakeProfit para TP
-            if(!OrderModify(oTakeProfit,oOpenPrice,oNewStopLoss,oNewTakeProfit,0)) continue;
-
-      }//ordersexist
-   }//orders total
-}
-
-
-
-//Trava todas posições, apertando os stops
-//tStart = *Pips para começar a encurtar os stop
-//tStop = *Pips que a moeda pode recuar, oscilar, caso oscile mais que isso, chegara ao stop.
-//ordertype = Passe OP_BUY ou OP_SELL
-//Função só poderá ser utilizada se os stop estiverem sendo enviados para o servido, caso esteja em --SteathMode não usar essa função
-void TrailingAlls(int tStart, int sStop, int ordertype) {
-   int profit;
-   double stoptrade; //StopLoss atual da ordem
-   double stopcal;   //proximo Stoploss
-   double AvgPrice = AveragePrice(OP_BUY);
-   if (sStop != 0) {
-      for(int i=0;i<OrdersTotal();i++){
-         if(OrderExist(i, ordertype)){
-             switch(OrderType()){
-               case 0://buy
-                  profit = NormalizeDouble((Bid - AvgPrice) / Point, 0);
-                  if (profit < tStart) continue; //profir ainda não alcançou o valor minimo para começar a fazer os traillings.
-                  stoptrade = OrderStopLoss();
-                  stopcal = Bid - sStop * Point;
-
-                  //OP_BUY a ideia aqui é jogar os stoploss sempre pra cima, apertando e forçando a dar mais lucro.
-                  if (stoptrade == 0.0 || (stoptrade != 0.0 && stopcal > stoptrade)) OrderModify(OrderTicket(), AvgPrice, stopcal, OrderTakeProfit(), 0, Aqua);
-                  Sleep(1000);
-               break;
-            }
-         }
-      }
-   }
-}
-
-
-
-
-
-/* Funcoes abaixo estão funcionando perfeitamente, verificar o magicnumber
-/*************** OrderModify **************/
-int OrderModify(int ordertype){   
-bool _modify = false;
-int _total = CountTrades(OP_BUY);
-
-   for (int _trade = OrdersTotal() - 1; _trade >= 0; _trade--) {
-      if(OrderSelect(_trade, SELECT_BY_POS, MODE_TRADES)){
-         if (OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == ordertype){
-            int    _TK = OrderTicket();
-            double _TP = OrderTakeProfit();
-            double _SL = OrderStopLoss();
-            double _OP = OrderOpenPrice();
-            double _newTP = 0;
-            double _newSL = 0;
-            _modify = false;      
-            double _avp =GetAveragePrice(OP_BUY);
-
-            switch(OrderType())
-            {
-               case 0://case 0 : buy
-                  if(_TP != _avp+TakeProfit*Point){
-                     _modify = true;    
-                     _newTP = _avp+TakeProfit*Point;        
-                  }else{
-                     _newTP = _TP;
-                  }
-
-                  if(_SL != _avp-StopLoss*Point){
-                     _modify = true;
-                     _newSL = _avp-StopLoss*Point;
-                  }else{
-                     _newSL = _SL;
-                  }
-               break;//exit switch
-
-               case 1://case 1 : sell
-                  if(_TP != _avp-TakeProfit*Point){
-                     _modify = true;    
-                     _newTP = _avp-TakeProfit*Point;        
-                  }else{
-                     _newTP = _TP;
-                  }
-
-                  if(_SL != _avp+StopLoss*Point){
-                     _modify = true;
-                     _newSL = _avp+StopLoss*Point;
-                  }else{
-                     _newSL = _SL;
-                  }
-               break;//case 1 : sell
-            }//exit switch
-            
-            if(_modify == false) continue; //exit cycle orderstotal
-
-               OrderModify(_TK,_OP,_newSL,_newTP,0);
-               if(GetLastError()>0)continue;
-         }
-      }//exit if orderselected
-   }//exit cycle orderstotal
-}
-
-double GetAveragePrice(int ordertype){
-   int _total = CountTrades(OP_BUY);
-   double _averageprice = 0;
-   double _count = 0;
-
-   for (int _trade = OrdersTotal() - 1; _trade >= 0; _trade--) {
-         OrderSelect(_trade, SELECT_BY_POS, MODE_TRADES);      
-         if (OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == ordertype){
-            _averageprice += OrderOpenPrice() * OrderLots();
-            _count += OrderLots();
-         }
-      }
-
-   if (_total > 0) _averageprice = NormalizeDouble(_averageprice / _count, Digits);
-   return(_averageprice);
-}
-
-/*Funcoes*/
-int CountTrades(int ordertype) {
-   int _count = 0;
-   for (int _trade = OrdersTotal() - 1; _trade >= 0; _trade--) {
-      OrderSelect(_trade, SELECT_BY_POS, MODE_TRADES);      
-      if (OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == ordertype)
-         _count++;
-      else
-         continue;
-   }
-   return (_count);
 }
