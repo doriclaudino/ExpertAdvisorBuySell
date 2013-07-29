@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                                                     Buy 1.1.2.mq4|
+//|                                                     Buy 1.1.3.mq4|
 //|                                                             dori |
 //|                                             fb.com/dori.claudino |
 //+------------------------------------------------------------------+
@@ -358,64 +358,92 @@ void TrailingAlls(int tStart, int sStop, int ordertype) {
 
 /* Funcoes abaixo estão funcionando perfeitamente, verificar o magicnumber
 /*************** OrderModify **************/
-int OrderModify.Buy(){   
-bool modify = false;
-   for(int i=0;i<OrdersTotal();i++){
-      if(OrderSelect(i,SELECT_BY_POS)==true){
-      if(OrderSymbol() != Symbol() || OrderType() != OP_BUY) continue;
-      int    TK = OrderTicket();
-      double TP = OrderTakeProfit();
-      double SL = OrderStopLoss();
-      double OP = OrderOpenPrice();
-      double newTP = 0;
-         modify = false;      
-         double avp =GetAveragePrice.Buy();
+int OrderModify(int ordertype){   
+bool _modify = false;
+int _total = CountTrades(OP_BUY);
 
-         switch(OrderType())
-         {
-            case 0://buy
-               if(TP != avp+TakeProfit*Point){
-                  modify = true;    
-                  newTP = avp+TakeProfit*Point;        
-               }   
-            break;//exit switch   
-         }////exit switch
-         
-         if(modify == false) continue; //exit cycle orderstotal
+   for (int _trade = OrdersTotal() - 1; _trade >= 0; _trade--) {
+      if(OrderSelect(_trade, SELECT_BY_POS, MODE_TRADES)){
+         if (OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == ordertype){
+            int    _TK = OrderTicket();
+            double _TP = OrderTakeProfit();
+            double _SL = OrderStopLoss();
+            double _OP = OrderOpenPrice();
+            double _newTP = 0;
+            double _newSL = 0;
+            _modify = false;      
+            double _avp =GetAveragePrice(OP_BUY);
 
-            OrderModify(TK,OP,SL,newTP,0);
-            if(GetLastError()>0)continue;
+            switch(OrderType())
+            {
+               case 0://case 0 : buy
+                  if(_TP != _avp+TakeProfit*Point){
+                     _modify = true;    
+                     _newTP = _avp+TakeProfit*Point;        
+                  }else{
+                     _newTP = _TP;
+                  }
+
+                  if(_SL != _avp-StopLoss*Point){
+                     _modify = true;
+                     _newSL = _avp-StopLoss*Point;
+                  }else{
+                     _newSL = _SL;
+                  }
+               break;//exit switch
+
+               case 1://case 1 : sell
+                  if(_TP != _avp-TakeProfit*Point){
+                     _modify = true;    
+                     _newTP = _avp-TakeProfit*Point;        
+                  }else{
+                     _newTP = _TP;
+                  }
+
+                  if(_SL != _avp+StopLoss*Point){
+                     _modify = true;
+                     _newSL = _avp+StopLoss*Point;
+                  }else{
+                     _newSL = _SL;
+                  }
+               break;//case 1 : sell
+            }//exit switch
             
+            if(_modify == false) continue; //exit cycle orderstotal
+
+               OrderModify(_TK,_OP,_newSL,_newTP,0);
+               if(GetLastError()>0)continue;
+         }
       }//exit if orderselected
    }//exit cycle orderstotal
 }
 
-double GetAveragePrice.Buy(){
-   int total = CountTrades.Buy();
-   double AveragePrice = 0;
-   double Count = 0;
-   for (int i = OrdersTotal() - 1; i >= 0; i--) {
-      OrderSelect(i, SELECT_BY_POS, MODE_TRADES);
-      if (OrderSymbol() != Symbol()) continue;
-      if (OrderSymbol() == Symbol()) {
-         if (OrderType() == OP_BUY) {
-            AveragePrice += OrderOpenPrice() * OrderLots();
-            Count += OrderLots();
+double GetAveragePrice(int ordertype){
+   int _total = CountTrades(OP_BUY);
+   double _averageprice = 0;
+   double _count = 0;
+
+   for (int _trade = OrdersTotal() - 1; _trade >= 0; _trade--) {
+         OrderSelect(_trade, SELECT_BY_POS, MODE_TRADES);      
+         if (OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == ordertype){
+            _averageprice += OrderOpenPrice() * OrderLots();
+            _count += OrderLots();
          }
       }
-   }   
-   if (total > 0) AveragePrice = NormalizeDouble(AveragePrice / Count, Digits);
-   return(AveragePrice);
+
+   if (_total > 0) _averageprice = NormalizeDouble(_averageprice / _count, Digits);
+   return(_averageprice);
 }
 
 /*Funcoes*/
-int CountTrades.Buy() {
-   int count = 0;
-   for (int trade = OrdersTotal() - 1; trade >= 0; trade--) {
-      OrderSelect(trade, SELECT_BY_POS, MODE_TRADES);
-      if (OrderSymbol() != Symbol()) continue;
-      if (OrderSymbol() == Symbol())
-         if (OrderType() == OP_BUY) count++;
+int CountTrades(int ordertype) {
+   int _count = 0;
+   for (int _trade = OrdersTotal() - 1; _trade >= 0; _trade--) {
+      OrderSelect(_trade, SELECT_BY_POS, MODE_TRADES);      
+      if (OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == ordertype)
+         _count++;
+      else
+         continue;
    }
-   return (count);
+   return (_count);
 }
