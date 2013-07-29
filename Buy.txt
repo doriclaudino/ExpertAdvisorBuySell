@@ -1,0 +1,223 @@
+//+------------------------------------------------------------------+
+//|                                                          Buy.mq4 |
+//|                                                             dori |
+//|                                             fb.com/dori.claudino |
+//+------------------------------------------------------------------+
+#property copyright "dori"
+#property link      "fb.com/dori.claudino"
+
+extern double LoteInicial = 0.01;
+extern double LoteExponencial = 1.5;
+extern double MinLoteStep = 0.01;
+extern double MaxVolume = 50;
+extern int    MaxDeals = 50;
+extern double MinPipStep = 50;
+extern double MaxPipStep = 150;
+extern double PipStepExponencial = 1.5;
+extern double TakeProfit = 100;
+extern double StopLoss   = 60;
+extern int    MagicNumber = 1802;
+extern int    Slippage = 3;
+extern bool   UseTraillingProfit = true;
+extern double TrailStart = 80;
+extern double TrailStop = 30;
+extern bool   MoneyManagement = false;
+extern double RiskRatio = 0.3;
+
+double maior = 0;
+//+------------------------------------------------------------------+
+//| expert initialization function                                   |
+//+------------------------------------------------------------------+
+int init()
+  {
+   if(LoteInicial<MarketInfo(Symbol(),MODE_MINLOT))LoteInicial = MarketInfo(Symbol(),MODE_MINLOT);
+   if(MinLoteStep<MarketInfo(Symbol(),MODE_LOTSTEP))MinLoteStep = MarketInfo(Symbol(),MODE_LOTSTEP);
+   if(MarketInfo(Symbol(),MODE_DIGITS)==3 || MarketInfo(Symbol(),MODE_DIGITS)==5){MaxPipStep*=10; MinPipStep*=10;TakeProfit*=10;TrailStart*=10;TrailStop*=10;StopLoss*=10;}
+   return(0);
+  }
+//+------------------------------------------------------------------+
+//| expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+int deinit()
+  {
+//----
+   
+//----
+   return(0);
+  }
+//+------------------------------------------------------------------+
+//| expert start function                                            |
+//+------------------------------------------------------------------+
+int start()
+  {
+  
+   if(UseTraillingProfit){}
+   
+
+   
+   
+   bool TradeNow = false;
+   int total_deals = TotalDeals(OP_BUY);
+   double last_open_price = FindLastOpenPrice(OP_BUY);
+   double average_price = AveragePrice(OP_BUY);   
+   double last_lote = GetLastLot(OP_BUY);
+   double total_lote = TotalLotes(OP_BUY);
+   
+   //variavel para controle do trailling profit
+   if(total_deals==0) maior =0;
+   
+   //controle do loteinicial
+   if(MoneyManagement)LoteInicial=NormalizeDouble(AccountBalance()*AccountLeverage()/1000000*RiskRatio,0)*MarketInfo(Symbol(),MODE_MINLOT);
+   
+   //volume com potencial 
+   double CustomVolume = NormalizeDouble(LoteInicial*MathPow(LoteExponencial,total_deals),2);   
+   
+   //pipstep com potencial
+   double CustomPipStep = NormalizeDouble(MinPipStep*MathPow(PipStepExponencial,total_deals-1),2); //aqui foi utilizado -1, para nao sair multiplicando logo na segunda negociacao *bug do ilan*
+  
+   if(ObjectDelete("MP"))
+      ObjectCreate("MP",OBJ_HLINE,0,Time[0],average_price);
+   else
+      ObjectCreate("MP",OBJ_HLINE,0,Time[0],average_price); 
+      
+      
+   //Com maxpipstep o preco ira atualizar, evitando esperar grande volatilidade
+   if(CustomPipStep>MaxPipStep) CustomPipStep = MaxPipStep;
+  
+   //CustomVolume é menor que o permitido
+   if(CustomVolume>MarketInfo(Symbol(),MODE_MAXLOT))CustomVolume=MarketInfo(Symbol(),MODE_MAXLOT); 
+   
+   //Verifica se o lotestep está sendo cumprido.
+   if(CustomVolume<last_lote+MinLoteStep)CustomVolume = last_lote+MinLoteStep;  
+   
+   if(total_lote+CustomVolume<=MaxVolume && total_deals < MaxDeals && last_open_price-Ask>=CustomPipStep*Point)
+      TradeNow = true;
+   else if(total_deals<MaxDeals && total_deals ==0 && CustomVolume<=MaxVolume)
+      TradeNow = true;
+   else
+      TradeNow = false;      
+      
+   if(TradeNow) SendOrder(OP_BUY,CustomVolume);   
+      
+   if(Bid-average_price>=TakeProfit*Point && average_price>0)
+     EndSession(OP_BUY);
+  
+   if(TrailStart>0 && Bid-average_price>TrailStart*Point) { 
+     double atual = Bid;
+     if(atual>maior)maior=atual;
+     if(maior-atual>TrailStop*Point) EndSession(OP_BUY);
+   }      
+ 
+   
+  
+   Sleep(300);
+   Comment("Deals:"+total_deals+"\nLotes:"+DoubleToStr(total_lote,2)+"\nAveragePrice:"+DoubleToStr(average_price,Digits)+"\nNext Volume:"+DoubleToStr(CustomVolume,2)+"\nWait:"+DoubleToStr(CustomPipStep-((last_open_price-Bid)/Point),0)+"(in pips)");
+   Sleep(500);
+   
+  
+   return(0);//
+  }
+//+------------------------------------------------------------------
+
+
+//Pass OP_BUY or OP_SELL and volume
+int SendOrder(int ordertype,double volume){
+      for(int n=5;n>=0;n--){
+         int ticket = OrderSend(Symbol(),ordertype,volume,Ask,Slippage,0,0,"",MagicNumber,NULL,NULL);      
+         int err = GetLastError();
+         if (err == 0/* NO_ERROR */) break;
+         if (!(err == 4/* SERVER_BUSY */ || err == 137/* BROKER_BUSY */ || err == 146/* TRADE_CONTEXT_BUSY */ || err == 136/* OFF_QUOTES */)) break;
+         Sleep(5000);
+      }
+   return(ticket);   
+}
+
+//Pass OP_BUY or OP_SELL
+void EndSession(int ordertype){
+int n = 5; //num tentativas
+   for(n = 5;n>=0;n--){   
+      for (int i = OrdersTotal() - 1; i >= 0; i--) {
+         if(OrderExist(i,ordertype)){
+            if(!OrderClose(OrderTicket(),OrderLots(),Bid,3)){
+               Sleep(1000);
+               RefreshRates();
+            }   
+         }
+      }
+   }   
+}
+
+//Pass OP_BUY or OP_SELL
+double AveragePrice(int ordertype){
+   int total = TotalDeals(ordertype);
+   double AveragePrice = 0;
+   double Count = 0;
+   for (int i = OrdersTotal() - 1; i >= 0; i--) {
+      if(OrderExist(i,ordertype)){
+         AveragePrice += OrderOpenPrice() * OrderLots();
+         Count += OrderLots();
+      }    
+   }     
+   if (total > 0) AveragePrice = NormalizeDouble(AveragePrice / Count, Digits);
+   return(AveragePrice);
+}
+
+
+//Pass OP_BUY or OP_SELL
+int TotalDeals(int ordertype) {
+   int count = 0;
+   for (int i = OrdersTotal() - 1; i >= 0; i--) {
+      if(OrderExist(i,ordertype))
+         count++;
+   }
+   return (count);
+}
+
+//Pass OP_BUY or OP_SELL
+double TotalLotes(int ordertype) {
+   double lotes = 0;
+   for (int i = OrdersTotal() - 1; i >= 0; i--) {
+      if(OrderExist(i,ordertype))
+         lotes+=OrderLots();
+   }
+   return(lotes);
+}
+
+//Pass OP_BUY or OP_SELL
+double FindLastOpenPrice(int ordertype) {
+   double LastOpenPrice;
+   int atual;
+   int maior = 0;
+      for (int i = OrdersTotal() - 1; i >= 0; i--) {
+         if(OrderExist(i,ordertype)){
+         atual = OrderTicket();
+            if (atual > maior) {
+               LastOpenPrice = OrderOpenPrice();
+               maior = atual;
+            }
+         }
+      }
+   return (LastOpenPrice);
+}
+
+//Pass OP_BUY or OP_SELL
+double GetLastLot(int ordertype) {
+   double LastLot;
+   int atual;
+   int maior = 0;
+      for (int i = OrdersTotal() - 1; i >= 0; i--) {
+         if(OrderExist(i,ordertype)){
+         atual = OrderTicket();
+            if (atual > maior) {
+               LastLot = OrderLots();
+               maior = atual;
+            }
+         }
+      }
+   return (LastLot);
+}
+
+//Pass OP_BUY or OP_SELL
+bool OrderExist(int i, int ordertype){  
+   return(OrderSelect(i, SELECT_BY_POS, MODE_TRADES) && OrderSymbol() == Symbol() && /*OrderMagicNumber() == MagicNumber &&*/ OrderType() == ordertype);  
+}
