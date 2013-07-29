@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                                                    Sell 1.1.6.mq4|
+//|                                                    Sell 1.1.7.mq4|
 //|                                                             dori |
 //|                                             fb.com/dori.claudino |
 //+------------------------------------------------------------------+
@@ -13,12 +13,15 @@ extern double @MaxVolume  = 10;
 //------------------------------
 extern double @LoteInicial = 0.1;
 extern double @MinLoteStep = 0.01;
-extern double @MinPipStep = 40; 
+extern double @MinPipStep = 10; 
 //------------------------------
-extern double @LoteExponencial = 1.1;
-extern double @PipStepExponencial = 1.3;
+extern double @LoteExponencial = 1;
+extern double @PipStepExponencial = 1.7;
 //------------------------------
-extern double @TakeProfit = 18; 
+extern double @TakeProfit   = 100;
+extern double @StartStopIN  = 30;
+extern double @StopLoss     = 10;
+extern bool   @UseTrailStop = true;  
 //------------------------------
 extern int @SyncDelay = 4;
 extern double @Slippage   = 5;
@@ -29,9 +32,10 @@ int InitHour = 0;
 //| expert initialization function                                   |
 //+------------------------------------------------------------------+
 int init() {
-	if(MarketInfo(Symbol(),MODE_DIGITS)==3 || MarketInfo(Symbol(),MODE_DIGITS)==5) {@MaxPipStep*=10; @MinPipStep*=10; @TakeProfit*=10; @Slippage*=10;}
+	if(MarketInfo(Symbol(),MODE_DIGITS)==3 || MarketInfo(Symbol(),MODE_DIGITS)==5) {@MaxPipStep*=10; @MinPipStep*=10; @TakeProfit*=10; @Slippage*=10;@StartStopIN*=10;@StopLoss*=10;}
+      
 	InitHour = Hour();
-	SyncProfit( OP_SELL , @MagicNumber , Symbol() , @TakeProfit );  	
+	SyncProfit( OP_BUY , @MagicNumber , Symbol() , @TakeProfit );  	
 	return(0);
 }
 //+------------------------------------------------------------------+
@@ -84,12 +88,13 @@ int start() {
    }   
    
    if((Hour()>InitHour && Hour()-InitHour>=@SyncDelay) || (Hour()<InitHour && InitHour-Hour()>=@SyncDelay)){
-      //Print("Synchronizing TPs ");
+      Print("Synchronizing TPs ");
       SyncProfit( OP_SELL , @MagicNumber , Symbol() , @TakeProfit);  
       InitHour = Hour();
    }
-           
-   string comentario =  "Sell 1.1.5" + "\n" +
+
+   double PrecoMedio =  GetMedianPrice(OP_SELL,@MagicNumber,Symbol());           
+   string comentario =  "Sell 1.1.7" + "\n" +
                         "Ordens .: " + DoubleToStr(TOTAL_ORDERS,0) + "\n" +
                         "Lotes .: " + DoubleToStr(TOTAL_LOTES,2) + "\n" +
                         "Preco Medio.: " + DoubleToStr(GetMedianPrice(OP_SELL,@MagicNumber,Symbol()),Digits) + "\n" +
@@ -99,6 +104,7 @@ int start() {
 
    Sleep(500);
    Comment(comentario);
+   if(@UseTrailStop)TrailingAlls(@StartStopIN,@StopLoss,PrecoMedio);
 	return(0);
 }
 //+------------------------------------------------------------------+
@@ -247,22 +253,65 @@ bool modify = false;
 		return(0);
 	}else{   
 	double medianprice = GetMedianPrice(ordertype,magicnumber,symbol);
-   double newtakeprofit = GetTakeProfit(ordertype,medianprice, lucro);  	
+    double newtakeprofit = GetTakeProfit(ordertype,medianprice, lucro);  	
 	
-		for(int index=0; index<=OrdersTotal(); index++){
-			if(OrderSelect(index,SELECT_BY_POS,MODE_TRADES)) {	
-			   if (OrderSymbol() == symbol && OrderMagicNumber() == magicnumber && OrderType() == ordertype && OrderTakeProfit() != newtakeprofit) {
-			      if(OrderType() == OP_BUY)
-			         OrderModify(OrderTicket(),OrderOpenPrice(),OrderStopLoss(),newtakeprofit,OrderExpiration(),Blue);	      
-			      else if(OrderType() == OP_SELL) 
-			         OrderModify(OrderTicket(),OrderOpenPrice(),OrderStopLoss(),newtakeprofit,OrderExpiration(),Red);	
-			         
-			      if(GetLastError()>1)
-			         Print("Erro.:"+GetLastError());	      
-			   }
+		for (int index = OrdersTotal() - 1; index >= 0; index--) {
+			if(OrderSelect(index,SELECT_BY_POS,MODE_TRADES)) {
+				if (OrderSymbol() == symbol && OrderMagicNumber() == magicnumber && OrderType() == ordertype) {				
+					int    TK = OrderTicket();
+					double TP = OrderTakeProfit();
+					double SL = OrderStopLoss();
+					double OP = OrderOpenPrice();
+					color cor;
+					
+					if(TP != newtakeprofit){
+						switch(OrderType())	{
+							case 0://buy
+								modify = true;    								 
+								cor = Blue;  
+							break;
+							case 1://sell
+								modify = true;    
+								cor = Red;    				
+							break;
+						}
+					}					
+					
+					if(modify == false) 
+						continue;
+					else
+						OrderModify(TK,OP,SL,newtakeprofit,0,cor);
+				}
 			}
-			Sleep(1000);
 		}
-	}
-}				
+	}	
+}
 
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//  FAZ O TRAILLING STOP DE VENDA (SELL)
+//  1 - TakeProfit to start trailstop
+//  2 - Stop em pontos
+//  3 - PrecoMedio para base nos stops
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+void TrailingAlls(int pType, int stop, double AvgPrice) {
+   int profit;
+   double stoptrade;
+   double stopcal;
+   if (stop != 0) {
+      for (int trade = OrdersTotal() - 1; trade >= 0; trade--) {
+         if (OrderSelect(trade, SELECT_BY_POS, MODE_TRADES)) {
+            if (OrderSymbol() == Symbol() || OrderMagicNumber() == @MagicNumber) {
+               if (OrderType() == OP_SELL) {
+                  profit = NormalizeDouble((AvgPrice - Ask) / Point, 0);
+                  if (profit < pType) continue;
+                  stoptrade = OrderStopLoss();
+                  stopcal = Ask + stop * Point;
+                  if (stoptrade == 0.0 || (stoptrade != 0.0 && stopcal < stoptrade)) OrderModify(OrderTicket(), AvgPrice, stopcal, OrderTakeProfit(), 0, Red);
+               }
+            }
+            Sleep(1000);
+         }
+      }
+   }
+}
