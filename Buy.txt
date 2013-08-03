@@ -1,5 +1,5 @@
-//+------------------------------------------------------------------+
-//|                                                     Buy 1.1.7.mq4|
+﻿//+------------------------------------------------------------------+
+//|                                                     Buy 1.1.8.mq4|
 //|                                                             dori |
 //|                                             fb.com/dori.claudino |
 //+------------------------------------------------------------------+
@@ -22,6 +22,8 @@ extern double @TakeProfit   = 100;
 extern double @StartStopIN  = 30;
 extern double @StopLoss     = 10;
 extern bool   @UseTrailStop = true;  
+//------------------------------
+extern int  @NumOfSucessTrades = 5;
 //------------------------------
 extern int @SyncDelay = 4;
 extern double @Slippage   = 5;
@@ -57,6 +59,33 @@ int start() {
     double LAST_OPEN_PRICE = GetLastOpenPrice( OP_BUY , @MagicNumber , Symbol() );
     double LAST_OPEN_LOTE = GetLastOpenLot( OP_BUY , @MagicNumber , Symbol() );
     
+    //cria a variavel de sessao quando há negociacoes abertas
+    string SessionName = Symbol()+@MagicNumber+"Buy"; 
+    if(TOTAL_ORDERS>0){                                            
+      for (int index = 0; index < OrdersTotal();index++) {
+         if(OrderSelect(index,SELECT_BY_POS,MODE_TRADES)) {  
+            GlobalVariableSet(SessionName,OrderOpenTime());    
+            break;
+         }
+      }   
+    }
+    //verifica os trades no historico que estao dentro do horario da sessao
+    if(@NumOfSucessTrades>0 && TOTAL_ORDERS==0 && GlobalVariableCheck(SessionName)){    
+    int temp_cont =0;
+    Sleep(500);   
+		for (index = OrdersHistoryTotal() - 1; index >= 0; index--) {
+         if(OrderSelect(index,SELECT_BY_POS,MODE_HISTORY)) {
+            if (OrderSymbol() == Symbol() && OrderMagicNumber() == @MagicNumber && OrderType() == OP_BUY && OrderProfit()>0 && OrderOpenTime() >= GlobalVariableGet(SessionName)) {
+               temp_cont+=1;
+            }
+         }
+      }
+      if(temp_cont>=@NumOfSucessTrades){
+         GlobalVariableSet(SessionName,0);
+         return(0);
+      }
+    }   
+    
     //volume com potencial
     double volume =  NormalizeDouble(@LoteInicial*MathPow(@LoteExponencial,TOTAL_ORDERS),2); 
     
@@ -66,22 +95,22 @@ int start() {
    //Com maxpipstep o preco da media ira atualizar, evitando esperar grande volatilidade
    if(pipstep>@MaxPipStep) pipstep = @MaxPipStep;
   
-   //volume é menor que o permitido pelo broker
+   //volume eh menor que o permitido pelo broker
    if(volume>MarketInfo(Symbol(),MODE_MAXLOT))volume=MarketInfo(Symbol(),MODE_MAXLOT); 
    
-   //Verifica se o lotestep está sendo cumprido [ok].
+   //Verifica se o lotestep esta sendo cumprido [ok].
    if(volume < LAST_OPEN_LOTE+@MinLoteStep && TOTAL_ORDERS>0 )volume = LAST_OPEN_LOTE + @MinLoteStep;             
       
    if(TOTAL_ORDERS < @MaxOpenPositions){ //verificacao numero de posicoes [OK]
 
-      if(volume + TOTAL_LOTES < @MaxVolume){//verifica o total de lotes mais o proximo lote, se é menor que o maxvolume permitido na conta [OK]
+      if(volume + TOTAL_LOTES < @MaxVolume){//verifica o total de lotes mais o proximo lote, se eh menor que o maxvolume permitido na conta [OK]
       
-         if(LAST_OPEN_PRICE - Ask >= pipstep*Point || TOTAL_ORDERS == 0){//verifica se já fez o pipstep com potencial
+         if(LAST_OPEN_PRICE - Ask >= pipstep*Point || TOTAL_ORDERS == 0){//verifica se jah fez o pipstep com potencial
             SendOrder( OP_BUY, @MagicNumber, Symbol(), volume, @Slippage, TOTAL_ORDERS+1 + " " + @MagicNumber); 
             Sleep(5000);
             
-            //Nas contas do tipo PAMM, não podemos enviar as negociações com StopLoss e TakeProfit, devemos alterar esses níveis após criar a ordem.
-            //Necessidade de criar uma Flag para de tempos em tempos atualizar e verificar os niveis de Profit, pois caso abra a negociação e logo caia o terminal, ele deve de tempos fazer essa verificaçao.
+            //Nas contas do tipo PAMM, nao podemos enviar as negociacoes com StopLoss e TakeProfit, devemos alterar esses niveis apos criar a ordem.
+            //Necessidade de criar uma Flag para de tempos em tempos atualizar e verificar os niveis de Profit, pois caso abra a negociaçao e logo caia o terminal, ele deve de tempos fazer essa verificacao.
             SyncProfit( OP_BUY , @MagicNumber , Symbol() , @TakeProfit );    
          }
       }  
