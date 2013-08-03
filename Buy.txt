@@ -1,5 +1,5 @@
 ﻿//+------------------------------------------------------------------+
-//|                                                     Buy 1.1.8.mq4|
+//|                                                     Buy 1.1.9.mq4|
 //|                                                             dori |
 //|                                             fb.com/dori.claudino |
 //+------------------------------------------------------------------+
@@ -26,8 +26,10 @@ extern bool   @UseTrailStop = true;
 extern int  @NumOfSucessTrades = 5;
 //------------------------------
 extern int @SyncDelay = 4;
-extern double @Slippage   = 5;
+extern double @Slippage = 5;
 
+string SessionName; 
+int    SessionInit;
 
 int InitHour = 0;
 //+------------------------------------------------------------------+
@@ -37,7 +39,11 @@ int init() {
 	if(MarketInfo(Symbol(),MODE_DIGITS)==3 || MarketInfo(Symbol(),MODE_DIGITS)==5) {@MaxPipStep*=10; @MinPipStep*=10; @TakeProfit*=10; @Slippage*=10;@StartStopIN*=10;@StopLoss*=10;}
       
 	InitHour = Hour();
-	SyncProfit( OP_BUY , @MagicNumber , Symbol() , @TakeProfit );  	
+	SyncProfit( OP_BUY , @MagicNumber , Symbol() , @TakeProfit );     
+	
+	SessionName = Symbol()+@MagicNumber+"Buy"; 
+	SessionInit = TimeCurrent();
+		
 	return(0);
 }
 //+------------------------------------------------------------------+
@@ -59,29 +65,19 @@ int start() {
     double LAST_OPEN_PRICE = GetLastOpenPrice( OP_BUY , @MagicNumber , Symbol() );
     double LAST_OPEN_LOTE = GetLastOpenLot( OP_BUY , @MagicNumber , Symbol() );
     
-    //cria a variavel de sessao quando há negociacoes abertas
-    string SessionName = Symbol()+@MagicNumber+"Buy"; 
-    if(TOTAL_ORDERS>0){                                            
-      for (int index = 0; index < OrdersTotal();index++) {
-         if(OrderSelect(index,SELECT_BY_POS,MODE_TRADES)) {  
-            GlobalVariableSet(SessionName,OrderOpenTime());    
-            break;
-         }
-      }   
-    }
     //verifica os trades no historico que estao dentro do horario da sessao
-    if(@NumOfSucessTrades>0 && TOTAL_ORDERS==0 && GlobalVariableCheck(SessionName)){    
+    SessionName = Symbol()+@MagicNumber+"Buy"; 
+    if(@NumOfSucessTrades>0 && TOTAL_ORDERS==0){    
     int temp_cont =0;
     Sleep(500);   
-		for (index = OrdersHistoryTotal() - 1; index >= 0; index--) {
+		for (int index = OrdersHistoryTotal() - 1; index >= 0; index--) {
          if(OrderSelect(index,SELECT_BY_POS,MODE_HISTORY)) {
-            if (OrderSymbol() == Symbol() && OrderMagicNumber() == @MagicNumber && OrderType() == OP_BUY && OrderProfit()>0 && OrderOpenTime() >= GlobalVariableGet(SessionName)) {
+            if (OrderSymbol() == Symbol() && OrderMagicNumber() == @MagicNumber && OrderType() == OP_BUY && OrderProfit()>0 && OrderOpenTime() >= SessionInit) {
                temp_cont+=1;
             }
          }
       }
       if(temp_cont>=@NumOfSucessTrades){
-         GlobalVariableSet(SessionName,0);
          return(0);
       }
     }   
@@ -103,14 +99,14 @@ int start() {
       
    if(TOTAL_ORDERS < @MaxOpenPositions){ //verificacao numero de posicoes [OK]
 
-      if(volume + TOTAL_LOTES < @MaxVolume){//verifica o total de lotes mais o proximo lote, se eh menor que o maxvolume permitido na conta [OK]
+      if(volume + TOTAL_LOTES < @MaxVolume){//verifica o total de lotes mais o proximo lote, se ha menor que o maxvolume permitido na conta [OK]
       
          if(LAST_OPEN_PRICE - Ask >= pipstep*Point || TOTAL_ORDERS == 0){//verifica se jah fez o pipstep com potencial
             SendOrder( OP_BUY, @MagicNumber, Symbol(), volume, @Slippage, TOTAL_ORDERS+1 + " " + @MagicNumber); 
             Sleep(5000);
             
             //Nas contas do tipo PAMM, nao podemos enviar as negociacoes com StopLoss e TakeProfit, devemos alterar esses niveis apos criar a ordem.
-            //Necessidade de criar uma Flag para de tempos em tempos atualizar e verificar os niveis de Profit, pois caso abra a negociaçao e logo caia o terminal, ele deve de tempos fazer essa verificacao.
+            //Necessidade de criar uma Flag para de tempos em tempos atualizar e verificar os niveis de Profit, pois caso abra a negociacao e logo caia o terminal, ele deve de tempos fazer essa verificacao.
             SyncProfit( OP_BUY , @MagicNumber , Symbol() , @TakeProfit );    
          }
       }  
