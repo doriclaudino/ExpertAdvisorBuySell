@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                                                    Sell 1.1.7.mq4|
+//|                                                    Sell 1.1.8.mq4|
 //|                                                             dori |
 //|                                             fb.com/dori.claudino |
 //+------------------------------------------------------------------+
@@ -23,9 +23,13 @@ extern double @StartStopIN  = 30;
 extern double @StopLoss     = 10;
 extern bool   @UseTrailStop = true;  
 //------------------------------
+extern int  @NumOfSucessTrades = 5;
+//------------------------------
 extern int @SyncDelay = 4;
-extern double @Slippage   = 5;
+extern double @Slippage = 5;
 
+string SessionName; 
+int    SessionInit;
 
 int InitHour = 0;
 //+------------------------------------------------------------------+
@@ -35,7 +39,11 @@ int init() {
 	if(MarketInfo(Symbol(),MODE_DIGITS)==3 || MarketInfo(Symbol(),MODE_DIGITS)==5) {@MaxPipStep*=10; @MinPipStep*=10; @TakeProfit*=10; @Slippage*=10;@StartStopIN*=10;@StopLoss*=10;}
       
 	InitHour = Hour();
-	SyncProfit( OP_BUY , @MagicNumber , Symbol() , @TakeProfit );  	
+	SyncProfit( OP_SELL , @MagicNumber , Symbol() , @TakeProfit );     
+	
+	SessionName = Symbol()+@MagicNumber+"Sell"; 
+	SessionInit = TimeCurrent();
+		
 	return(0);
 }
 //+------------------------------------------------------------------+
@@ -56,6 +64,23 @@ int start() {
     double TOTAL_LOTES = GetLotsTotal( OP_SELL , @MagicNumber , Symbol() );
     double LAST_OPEN_PRICE = GetLastOpenPrice( OP_SELL , @MagicNumber , Symbol() );
     double LAST_OPEN_LOTE = GetLastOpenLot( OP_SELL , @MagicNumber , Symbol() );
+    
+    //verifica os trades no historico que estao dentro do horario da sessao
+    SessionName = Symbol()+@MagicNumber+"Sell"; 
+    if(@NumOfSucessTrades>0 && TOTAL_ORDERS==0){    
+    int temp_cont =0;
+    Sleep(500);   
+		for (int index = OrdersHistoryTotal() - 1; index >= 0; index--) {
+         if(OrderSelect(index,SELECT_BY_POS,MODE_HISTORY)) {
+            if (OrderSymbol() == Symbol() && OrderMagicNumber() == @MagicNumber && OrderType() == OP_SELL && OrderProfit()>0 && OrderOpenTime() >= SessionInit) {
+               temp_cont+=1;
+            }
+         }
+      }
+      if(temp_cont>=@NumOfSucessTrades){
+         return(0);
+      }
+    }     
     
     //volume com potencial
     double volume =  NormalizeDouble(@LoteInicial*MathPow(@LoteExponencial,TOTAL_ORDERS),2); 
@@ -82,7 +107,7 @@ int start() {
             
             //Nas contas do tipo PAMM, não podemos enviar as negociações com StopLoss e TakeProfit, devemos alterar esses níveis após criar a ordem.
             //Necessidade de criar uma Flag para de tempos em tempos atualizar e verificar os niveis de Profit, pois caso abra a negociação e logo caia o terminal, ele deve de tempos fazer essa verificaçao.
-            SyncProfit( OP_SELL , @MagicNumber , Symbol() , @TakeProfit );    
+            SyncProfit( OP_BUY , @MagicNumber , Symbol() , @TakeProfit );    
          }
       }  
    }   
@@ -93,11 +118,12 @@ int start() {
       InitHour = Hour();
    }
 
-   double PrecoMedio =  GetMedianPrice(OP_SELL,@MagicNumber,Symbol());           
-   string comentario =  "Sell 1.1.7" + "\n" +
+   double PrecoMedio =  GetMedianPrice(OP_SELL,@MagicNumber,Symbol());  
+            
+   string comentario =  "Sell 1.1.8" + "\n" +
                         "Ordens .: " + DoubleToStr(TOTAL_ORDERS,0) + "\n" +
                         "Lotes .: " + DoubleToStr(TOTAL_LOTES,2) + "\n" +
-                        "Preco Medio.: " + DoubleToStr(GetMedianPrice(OP_SELL,@MagicNumber,Symbol()),Digits) + "\n" +
+                        "Preco Medio.: " + DoubleToStr(PrecoMedio,Digits) + "\n" +
                         "Prox Lote .: " + DoubleToStr(volume,2) + "\n" +
                         "PipStep .: " + DoubleToStr(pipstep,0) + "\n" +
                         "Pips to open.: " + DoubleToStr(pipstep-((Bid - LAST_OPEN_PRICE)/Point),0);
