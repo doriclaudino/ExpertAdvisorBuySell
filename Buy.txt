@@ -1,5 +1,5 @@
 ﻿//+------------------------------------------------------------------+
-//|                                                     Buy 1.1.9.mq4|
+//|                                                     Buy 1.2.0.mq4|
 //|                                                             dori |
 //|                                             fb.com/dori.claudino |
 //+------------------------------------------------------------------+
@@ -72,7 +72,7 @@ int start() {
     Sleep(500);   
 		for (int index = OrdersHistoryTotal() - 1; index >= 0; index--) {
          if(OrderSelect(index,SELECT_BY_POS,MODE_HISTORY)) {
-            if (OrderSymbol() == Symbol() && OrderMagicNumber() == @MagicNumber && OrderType() == OP_BUY && OrderProfit()>0 && OrderOpenTime() >= SessionInit) {
+            if (OrderSymbol() == Symbol() && OrderMagicNumber() == @MagicNumber && OrderType() == OP_BUY && OrderProfit()>0 && OrderCloseTime() >= SessionInit) {
                temp_cont+=1;
             }
          }
